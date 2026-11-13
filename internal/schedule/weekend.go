@@ -51,15 +51,21 @@ func ActiveWeekend(client Fetcher, cachePath string, now time.Time) (*Weekend, e
 
 	meetingsByYear, sessionsByYear, err := fetchAll(client, years)
 	if err != nil {
-		if !openf1.IsLiveRestriction(err) {
+		var reason string
+		switch {
+		case openf1.IsLiveRestriction(err):
+			reason = "API locked during live session"
+		case openf1.IsRateLimited(err):
+			reason = "OpenF1 rate limit exceeded"
+		default:
 			return nil, err
 		}
 		if cachePath == "" {
-			return nil, fmt.Errorf("API locked during live session and no cache path configured: %w", err)
+			return nil, fmt.Errorf("%s and no cache path configured: %w", reason, err)
 		}
 		snap, loadErr := cache.Load(cachePath)
 		if loadErr != nil {
-			return nil, fmt.Errorf("API locked during live session and no cached schedule: %v", loadErr)
+			return nil, fmt.Errorf("%s and no cached schedule: %v", reason, loadErr)
 		}
 		weekend, buildErr := weekendFromData(flatten(snap.MeetingsByYear()), flatten(snap.SessionsByYear()), now, true)
 		if buildErr != nil {
