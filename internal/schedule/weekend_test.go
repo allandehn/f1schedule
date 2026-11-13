@@ -39,6 +39,14 @@ func liveRestriction() error {
 	}
 }
 
+func rateLimited() error {
+	return &openf1.APIError{
+		URL:        "https://api.openf1.org/v1/sessions?year=2027",
+		StatusCode: http.StatusTooManyRequests,
+		Body:       `{"detail":"Rate limit exceeded. Max 3 requests/second.","error":"Too Many Requests"}`,
+	}
+}
+
 func sampleWeekend(now time.Time) (openf1.Meeting, []openf1.Session) {
 	meeting := openf1.Meeting{
 		MeetingKey:  42,
@@ -154,6 +162,33 @@ func TestActiveWeekendFallsBackToCacheOnLiveRestriction(t *testing.T) {
 	}
 	if !strings.HasPrefix(live.Label, "Practice 1") {
 		t.Fatalf("live session: %q", live.Label)
+	}
+}
+
+func TestActiveWeekendFallsBackToCacheOnRateLimit(t *testing.T) {
+	now := time.Date(2026, 9, 4, 14, 0, 0, 0, time.UTC)
+	meeting, sessions := sampleWeekend(now)
+	path := filepath.Join(t.TempDir(), "schedule.json")
+	if err := cache.Save(path, map[int][]openf1.Meeting{
+		2026: {meeting},
+	}, map[int][]openf1.Session{
+		2026: sessions,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	weekend, err := ActiveWeekend(fakeAPI{err: rateLimited()}, path, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !weekend.Cached {
+		t.Fatal("expected cached weekend")
+	}
+	if weekend.MeetingName != "Italian Grand Prix" {
+		t.Fatalf("got %q", weekend.MeetingName)
+	}
+	if weekend.CurrentOngoingSession() == nil {
+		t.Fatal("expected live session from cached times")
 	}
 }
 
